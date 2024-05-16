@@ -1,0 +1,137 @@
+---
+title: "Homework 2"
+author: 'Jiajia Feng'
+date: ' `r Sys.Date()`'
+output:
+    html_document:
+      toc: true
+      toc_float: true
+      code_folding: show
+---
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(kknn)
+library(ggplot2)
+library(corrplot)
+library(recipes)
+library(yardstick)
+library(broom)
+abalone_data <- read_csv("data/abalone.csv")
+```
+
+```{r}
+codebook <- readLines("data/abalone_codebook.txt")
+cat(codebook, sep="\n")
+names(abalone_data)
+```
+
+# Question 1
+```{r}
+abalone_data <- abalone_data %>% 
+  mutate(age = rings + 1.5)
+summary(abalone_data$age)
+ggplot(abalone_data, aes(x = age)) +
+  geom_histogram(bins = 30, fill = "grey", color = "black") +
+  theme_minimal() +
+  labs(title = "Distribution of Abalone Age", x = "Age", y = "Frequency")
+```
+The histogram displays a right-skewed distribution. So while most abalone are of a younger age, there are fewer abalones that reach an older age, with the frequency steadily decreasing as age increases. The tallest bin appears to be around the age of 10. This suggests that the most common age among the abalones in this sample is around 10.5 years.
+
+It's clear that most abalones are relatively young, with a peak frequency around 10-11 years of age. There are fewer older abalones, with a significant drop in frequency past 15 years of age, and very few reach ages beyond 20 years.
+
+
+# Question 2
+```{r}
+set.seed(123)
+
+split <- initial_split(abalone_data, prop = 0.80, strata = age)
+training_set <- training(split); training_set %>% head()
+testing_set <- testing(split); testing_set %>% head()
+summary(training_set$age)
+summary(testing_set$age)
+
+```
+# Question 3
+```{r}
+library(tidymodels)
+names(abalone_data)
+abalone_recipe <- recipe(age ~ ., data=training_set) %>%
+  step_rm(rings) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_interact(terms = ~ starts_with("type"):shucked_weight)%>%
+  step_interact(terms = ~ starts_with("longest_shell"):diameter)%>% 
+  step_interact(terms = ~ starts_with("shucked_weight"):shell_weight)%>%
+  step_normalize(all_predictors())
+```
+Since `age` is computed using `rings`, the predictor (`rings`) and the outcome (`age`) are mathematically linked.   This linkage leads to perfect predictability. Thus, there is no prediction challenge involved.
+
+# Question 4
+```{r}
+linear_regression_model <- linear_reg() %>%
+  set_engine("lm") %>%
+  set_mode("regression")
+```
+
+# Question 5
+```{r}
+knn_model <- nearest_neighbor(neighbors = 7) %>%
+  set_engine("kknn") %>%
+  set_mode("regression")
+```
+# Question 6
+```{r}
+# Workflow for Linear Regression
+workflow_linear <- workflow() %>%
+  add_model(linear_regression_model) %>%
+  add_recipe(abalone_recipe)
+
+# Workflow for KNN
+workflow_knn <- workflow() %>%
+  add_model(knn_model) %>%
+  add_recipe(abalone_recipe)
+
+# Fit the Linear Regression Model to the training data
+fit_linear <- fit(workflow_linear, data = training_set)
+
+# Fit the KNN Model to the training data
+fit_knn <- fit(workflow_knn, data = training_set)
+
+```
+
+# Question 7
+```{r}
+predict <- tibble(
+  type = "F",
+  longest_shell = 0.50,
+  diameter = 0.10,
+  height = 0.30,
+  whole_weight = 4,
+  shucked_weight = 1,
+  viscera_weight = 2,
+  shell_weight = 1,
+  rings = 0  # As a placeholder, if required
+)
+
+
+abalone_predict <- predict(fit_linear, new_data = predict)
+print(abalone_predict)
+```
+# Question 8
+```{r}
+library(yardstick)
+
+metric <- metric_set(rsq, rmse, mae) 
+aba.lm.test <- augment(fit_linear, testing_set)
+results_aba.lm.test <- metric(data=aba.lm.test, truth = age, estimate = .pred)
+results_aba.lm.test
+
+aba.knn.test <- augment(fit_knn, testing_set)
+results_aba.knn.test <- metric(data= aba.knn.test, truth = age, estimate = .pred)
+results_aba.knn.test
+
+```
+# Question 9
+The linear regression model performed better than the KNN model, because of a higher R-squared value. One reason for this could be that linear regression captures underlying relationships between variables more effectively, especially when these relationships are linear or nearly linear. In contrast, KNN relies on the proximity of similar data points.
+
+I am not surprised by these results. KNN primarily compares between b/w categorical variables, but abalone data is contrary to it. There are too much categorical variables in abalone data.
